@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Info Viewer</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; min-height: 100vh;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 16px; }
+  .search { display: flex; gap: 8px; margin-bottom: 20px; }
+  input {
+    flex: 1; padding: 12px 14px; font-size: 16px; border-radius: 8px;
+    border: 1px solid #334155; background: #1e293b; color: #e2e8f0;
+    -webkit-user-select: text; user-select: text;
+  }
+  button {
+    padding: 12px 20px; font-size: 16px; border: 0; border-radius: 8px;
+    background: #3b82f6; color: #fff; cursor: pointer;
+  }
+  button:hover { background: #2563eb; }
+  .error { color: #f87171; font-weight: 600; margin: 8px 0; }
+  .card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 12px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .row { display: flex; gap: 8px; padding: 8px 0; border-bottom: 1px solid #334155; }
+  .row:last-child { border-bottom: 0; }
+  .label { flex: 0 0 190px; color: #94a3b8; font-weight: 600; }
+  .value { flex: 1; word-break: break-word; }
+  .imgs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .imgbox { position: relative; height: 175px; line-height: 0; }
+  .imgbox canvas { height: 175px; width: auto; display: block; border-radius: 8px; }
+  /* transparent shield on top of the image */
+  .imgbox::after { content: ""; position: absolute; inset: 0; }
+  @media (max-width: 520px) { .row { flex-direction: column; gap: 2px; } .label { flex: none; } }
+  /* printing shows nothing */
+  @media print { body * { display: none !important; } body::before { content: "Printing disabled"; } }
+  /* hide content when tab loses focus */
+  body.hide-content .card { filter: blur(30px); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Information Viewer</h1>
+  <div class="search">
+    <input id="code" type="password" placeholder="Enter code" autocomplete="off">
+    <button id="go">Show</button>
+  </div>
+  <div id="out"></div>
+</div>
+
+<script>
+// ====== PUT YOUR RAW GIST LINK HERE ======
+const GIST_URL = "https://gist.githubusercontent.com/Sithum2012/94c3d3cd9516c7f60edbea3200e47bb7/raw/7e9e8309aa47781ef961e9680dfb49ab5744141e/data.json";
+// =========================================
+
+const FIELDS = [
+  ["d_name",  "Full Name"],
+  ["d_bd",    "Birthday"],
+  ["d_mn",    "Mother's Name"],
+  ["d_fn",    "Father's Name"],
+  ["d_bsn",   "Sibling's Names"],
+  ["d_bsn",   null], // placeholder removed below
+  ["d_ad",    "Address"],
+  ["d_img",   "Personal Picture"],
+  ["d_fno",   "Father's Number"],
+  ["d_mno",   "Mother's Number"],
+  ["d_cfad",  "Father's Separate Address"],
+  ["d_cmad",  "Mother's Separate Address"]
+].filter(f => f[1]);
+
+let DATA = null;
+const out = document.getElementById("out");
+const codeInput = document.getElementById("code");
+
+async function loadData() {
+  if (DATA) return DATA;
+  const res = await fetch(GIST_URL + (GIST_URL.includes("?") ? "&" : "?") + "t=" + Date.now(), { cache: "no-store" });
+  if (!res.ok) throw new Error("load failed");
+  const json = await res.json();
+  DATA = Array.isArray(json) ? json : (json.sectors || json.data || []);
+  return DATA;
+}
+
+function drawImage(url, box) {
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    const H = 175;
+    const W = Math.round(img.naturalWidth * (H / img.naturalHeight)); // keeps aspect ratio
+    const dpr = window.devicePixelRatio || 1;
+    const c = document.createElement("canvas");
+    c.width = W * dpr; c.height = H * dpr;
+    c.style.width = W + "px"; c.style.height = H + "px";
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    c.oncontextmenu = e => e.preventDefault();
+    box.appendChild(c);
+  };
+  img.onerror = () => { box.textContent = "Image unavailable"; box.style.lineHeight = "normal"; };
+  img.src = url;
+}
+
+function render(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+  for (const [key, label] of FIELDS) {
+    const val = item[key];
+    if (val === undefined || val === null || val === "") continue;
+    const row = document.createElement("div");
+    row.className = "row";
+    const l = document.createElement("div"); l.className = "label"; l.textContent = label + " :";
+    const v = document.createElement("div"); v.className = "value";
+    if (key === "d_img") {
+      const wrap = document.createElement("div"); wrap.className = "imgs";
+      (Array.isArray(val) ? val : [val]).forEach(u => {
+        const box = document.createElement("div"); box.className = "imgbox";
+        wrap.appendChild(box); drawImage(u, box);
+      });
+      v.appendChild(wrap);
+    } else {
+      v.textContent = val; // textContent => safe with any symbols
+    }
+    row.append(l, v); card.appendChild(row);
+  }
+  return card;
+}
+
+async function lookup() {
+  const code = codeInput.value.trim();
+  out.innerHTML = "";
+  if (!code) return;
+  try {
+    const list = await loadData();
+    const matches = list.filter(x => String(x.code).trim() === code);
+    if (!matches.length) {
+      out.innerHTML = '<div class="error">ID does NOT exist</div>';
+    } else {
+      matches.forEach(m => out.appendChild(render(m)));
+    }
+  } catch (e) {
+    out.innerHTML = '<div class="error">Could not load data. Check the gist link.</div>';
+  }
+}
+
+document.getElementById("go").onclick = lookup;
+codeInput.addEventListener("keydown", e => { if (e.key === "Enter") lookup(); });
+
+// ---- deterrents (cannot fully prevent screenshots) ----
+document.addEventListener("contextmenu", e => e.preventDefault());
+document.addEventListener("dragstart", e => e.preventDefault());
+document.addEventListener("copy", e => { if (document.activeElement !== codeInput) e.preventDefault(); });
+document.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  if (k === "printscreen") { navigator.clipboard && navigator.clipboard.writeText(""); out.innerHTML = ""; }
+  if ((e.ctrlKey || e.metaKey) && ["s", "p", "u"].includes(k)) e.preventDefault();
+  if (e.key === "F12" || ((e.ctrlKey || e.metaKey) && e.shiftKey && ["i", "j", "c", "s"].includes(k))) e.preventDefault();
+});
+window.addEventListener("blur", () => document.body.classList.add("hide-content"));
+window.addEventListener("focus", () => document.body.classList.remove("hide-content"));
+document.addEventListener("visibilitychange", () => {
+  document.body.classList.toggle("hide-content", document.hidden);
+});
+</script>
+</body>
+</html>
